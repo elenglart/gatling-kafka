@@ -9,17 +9,15 @@ import io.gatling.commons.util.DefaultClock
 import io.gatling.commons.validation.Validation
 import io.gatling.core.CoreComponents
 import io.gatling.core.util.NameGen
-import io.gatling.core.stats.message.ResponseTimings
 import org.apache.kafka.clients.producer._
 
 
-class KafkaRequestAction[K,V]( val producer: KafkaProducer[K,V],
-                               val kafkaAttributes: KafkaAttributes[K,V],
+class KafkaRequestAction[K, V](val producer: KafkaProducer[K, V],
+                               val kafkaAttributes: KafkaAttributes[K, V],
                                val coreComponents: CoreComponents,
                                val kafkaProtocol: KafkaProtocol,
                                val throttled: Boolean,
-                               val next: Action )
-  extends ExitableAction with NameGen {
+                               val next: Action) extends ExitableAction with NameGen {
 
   val statsEngine = coreComponents.statsEngine
   val clock = new DefaultClock
@@ -39,7 +37,7 @@ class KafkaRequestAction[K,V]( val producer: KafkaProducer[K,V],
 
       outcome.onFailure(
         errorMessage =>
-          statsEngine.reportUnbuildableRequest(session, requestName, errorMessage)
+          statsEngine.reportUnbuildableRequest(session.scenario, session.groups, requestName, errorMessage)
       )
 
       outcome
@@ -48,13 +46,13 @@ class KafkaRequestAction[K,V]( val producer: KafkaProducer[K,V],
 
   }
 
-  private def sendRequest( requestName: String,
-                           producer: Producer[K,V],
-                           kafkaAttributes: KafkaAttributes[K,V],
-                           throttled: Boolean,
-                           session: Session ): Validation[Unit] = {
+  private def sendRequest(requestName: String,
+                          producer: Producer[K, V],
+                          kafkaAttributes: KafkaAttributes[K, V],
+                          throttled: Boolean,
+                          session: Session): Validation[Unit] = {
 
-      kafkaAttributes payload session map { payload =>
+    kafkaAttributes payload session map { payload =>
 
       val record = kafkaAttributes.key match {
         case Some(k) =>
@@ -71,7 +69,8 @@ class KafkaRequestAction[K,V]( val producer: KafkaProducer[K,V],
 
           val requestEndDate = clock.nowMillis
           statsEngine.logResponse(
-            session,
+            session.scenario,
+            session.groups,
             requestName,
             startTimestamp = requestStartDate,
             endTimestamp = requestEndDate,
@@ -81,7 +80,10 @@ class KafkaRequestAction[K,V]( val producer: KafkaProducer[K,V],
           )
 
           if (throttled) {
-            coreComponents.throttler.throttle(session.scenario, () => next ! session)
+            coreComponents.throttler match {
+              case Some(t) => t.throttle(session.scenario, () => next ! session)
+              case None => logger.error("Unable to retrieve throttler")
+            }
           } else {
             next ! session
           }
