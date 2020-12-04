@@ -62,35 +62,8 @@ class KafkaRequestAction[K, V](val producer: KafkaProducer[K, V],
             new ProducerRecord[K, V](topic, payload)
         }
 
-        val requestStartDate = clock.nowMillis
-
-        producer.send(record, new Callback() {
-
-          override def onCompletion(m: RecordMetadata, e: Exception): Unit = {
-
-            val requestEndDate = clock.nowMillis
-            statsEngine.logResponse(
-              session.scenario,
-              session.groups,
-              requestName,
-              startTimestamp = requestStartDate,
-              endTimestamp = requestEndDate,
-              if (e == null) OK else KO,
-              None,
-              if (e == null) None else Some(e.getMessage)
-            )
-
-            if (throttled) {
-              coreComponents.throttler match {
-                case Some(t) => t.throttle(session.scenario, () => next ! session)
-                case None => logger.error("Unable to retrieve throttler")
-              }
-            } else {
-              next ! session
-            }
-
-          }
-        })
+        val callback = KafkaRequestActionCallback(session, requestName, coreComponents, throttled, next)
+        producer.send(record, callback)
       }
     }
   }
